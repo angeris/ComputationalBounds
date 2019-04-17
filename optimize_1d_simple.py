@@ -9,18 +9,22 @@ import cvxpy as cvx
 
 def generate_laplacian(n, L=1):
     diagonals = L*ones(n)
-    D = sparse.diags([diagonals[:-1], -2*diagonals, diagonals[:-1]], [-1,0,1])
+    D = sparse.diags([diagonals[:-1], -2*diagonals, diagonals[:-1]], [-1,0,1]).tocsr()
     return D
 
 
-N = 50
-w = 1
-L = (N*N) * array(generate_laplacian(N).todense())
-g = -sin(4*pi*w*linspace(0, 1, N))/(4*pi)**2
+N = 101
+w = 20*pi
+t_min = 1
+L = (N*N)/(w*w) * array(generate_laplacian(N).todense()) + t_min*eye(N)
+x = linspace(0, 1, N)
+g = sin(x*w)*exp(-(x - .5)**2/(.05))
 # g = zeros(N)
-b = sin(4*pi*w*linspace(0, 1, N))
-g[(N-1)//2:] = 0
-t_max = 10
+b = zeros(N)
+# b[(N-1)//2] = -1
+# b[(N-1)//2 - s: (N-1)//2 + s] = -1
+t_max = 2 - t_min
+# g[2*(N-1)//5:3*(N-1)//5] = 30*t_max/N**2
 
 # Terrible code... nobody should ever look at this.
 
@@ -31,12 +35,12 @@ def obj_jac(v):
     return r_[v[:N] - g, zeros(N)]
 
 def cons_eq(v):
-    return L @ v[:N] + w*w*v[N:]*v[:N] - b
+    return L @ v[:N] + v[N:]*v[:N] - b
 
 def cons_jac(v):
-    return c_[L + w*w*diag(v[N:]), w*w*diag(v[:N])]
+    return c_[L + diag(v[N:]), diag(v[:N])]
 
-v_init = r_[zeros(N), ones(N)]
+v_init = r_[ones(N), ones(N)]
 
 all_bounds = [(None, None) for _ in range(N)] + [(0, t_max) for _ in range(N)]
 
@@ -51,7 +55,7 @@ print('Optimal residual : {}'.format(linalg.norm(cons_eq(optim_res.x))))
 
 subplot(211)
 plot(optim_res.x[:N], label='actual')
-plot(g, label='desired')
+plot(list(range(N)), g, label='desired')
 legend()
 subplot(212)
 step(list(range(N)), optim_res.x[N:])
@@ -62,16 +66,15 @@ show()
 l = cvx.Variable(N)
 eta = cvx.Variable(N)
 
-obj = -l.T * b - t_max*t_max*cvx.sum(eta)/4 + .5*linalg.norm(g)**2
+obj = -l @ b - t_max*t_max*cvx.sum(eta)/4 + .5*linalg.norm(g)**2
 
 min_eps = 0
 
 for i in range(N):
-    obj += -.5*cvx.quad_over_lin((L.T * l)[i] + .5*l[i]*t_max - g[i], 1 - cvx.quad_over_lin(l[i], 2*eta[i]))
+    obj += -.25*cvx.quad_over_lin((L.T * l)[i] - .5*eta[i]*t_max - g[i], .5 - .25*cvx.quad_over_lin(l[i], eta[i]))
 
 cons = [
     eta >= min_eps,
-    cvx.square(l) <= 2*eta - min_eps
 ]
 
 prob = cvx.Problem(cvx.Maximize(obj), cons)
