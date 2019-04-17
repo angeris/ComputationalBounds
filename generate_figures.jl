@@ -1,44 +1,11 @@
-using SparseArrays
 using PyPlot
-using LinearAlgebra
 using JuMP
 using ProgressMeter
 using JLD
 import Gurobi
 
-function generate_lapl(n)
-    L = spdiagm(-1 => ones(n-1), 0 => -2*ones(n), 1 => ones(n-1))
-    return L
-end
-
-function linspace(s, e, n)
-    return collect(range(s, e, length=n))
-end
-
-function filter_square!(a, top_left, bottom_right, to_linear, value)
-    for J in CartesianIndices(bottom_right - top_left)
-        a[to_linear[top_left + J]] = value
-    end
-end
-
-function min_sq_diag(v, h, u, n_freq; tol=1e-14)
-    # minimizes sum_i(||diag(v_i)*x - h_i||^2), s.t. 0 ≤ x ≤ u
-    w_comp = sum(v[i] .* h[i] for i=1:n_freq)
-    inv_comp = sum(v[i].^2 for i=1:n_freq)
-    return clamp.(w_comp ./ inv_comp, 0, u)
-end
-
-function solve_max_eq(L_w, curr_theta, curr_nu, rho, weights, g, b)
-    A_theta = L_w + spdiagm(0 => curr_theta)
-    return Symmetric(spdiagm(0 => weights.^2) + rho * A_theta' * A_theta) \ (weights .* g + rho * A_theta' * (b - curr_nu))
-end
-
 # Helper functions for problem formulation
-
-# Formulates ||x||^2 <= y
-function quad_cons(m, x, y)
-    @constraint(m, norm([2*x; y-1]) <= y+1)
-end
+include("utilities.jl")
 
 rc("text", usetex=true)
 
@@ -96,7 +63,7 @@ end
 z_init = zeros(n_freq, N*N)
 t_init = t_min*ones(N*N)
 
-m = Model(solver=Gurobi.GurobiSolver())
+m = Model(with_optimizer(Gurobi.Optimizer))
 
 @variable(m, nu[1:N*N, 1:n_freq])
 @variable(m, t[1:N*N])
@@ -133,13 +100,14 @@ end
 savefig("resonator_z_primal_n$N.pdf", bbox_inches="tight")
 close()
 
-jldopen("output_files/dual_output.jld", "w") do file
-    write(file, "theta_init", theta_init)
-    write(file, "z_init", z_init)
-    write(file, "n", N)
-    write(file, "lower_bound", lower_bound)
-    write(file, "nu_opt", nu_sol)
-end
+# NOTE: Uncomment these lines if you want to save the output! WARNING: The file may be large.
+# jldopen("output_files/dual_output.jld", "w") do file
+#     write(file, "theta_init", theta_init)
+#     write(file, "z_init", z_init)
+#     write(file, "n", N)
+#     write(file, "lower_bound", lower_bound)
+#     write(file, "nu_opt", nu_sol)
+# end
 
 # New primal solver
 curr_z = copy(z_init)
@@ -217,15 +185,16 @@ obj_val = sum(.5*norm(weights_all[i].*(curr_z[i,:] - g_all[i]))^2 for i=1:n_freq
 @show lower_bound
 @show last_iteration
 
-jldopen("output_files/primal_output_dual_initialization.jld", "w") do file
-    write(file, "theta_opt", curr_theta)
-    write(file, "z_opt", curr_z)
-    write(file, "all_obj", all_obj)
-    write(file, "all_feas_tol", all_feas_tol)
-    write(file, "n", N)
-    write(file, "all_design", all_design)
-    write(file, "all_field", all_field)
-end
+# NOTE: Uncomment these lines if you want to save the output! WARNING: The file may be large.
+# jldopen("output_files/primal_output_dual_initialization.jld", "w") do file
+#     write(file, "theta_opt", curr_theta)
+#     write(file, "z_opt", curr_z)
+#     write(file, "all_obj", all_obj)
+#     write(file, "all_feas_tol", all_feas_tol)
+#     write(file, "n", N)
+#     write(file, "all_design", all_design)
+#     write(file, "all_field", all_field)
+# end
 
 figure(figsize=(8, 5))
 for i=1:n_freq
