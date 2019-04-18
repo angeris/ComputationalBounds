@@ -9,13 +9,15 @@ include("utilities.jl")
 
 rc("text", usetex=true)
 
-t_min = 1
-t_max = 2 - t_min
+const PLOT_ITERATES = false
 
-N = 51  # number of points in domain
-freqs = [30*pi, 40*pi, 50*pi]
-s = round(Int, 6 * (N-1) / 50)   # size of mode box in domain
-n_freq = length(freqs) # number of frequencies for the given problem
+const t_min = 1
+const t_max = 2 - t_min
+
+const N = 251  # number of points in domain
+const freqs = [30*pi, 40*pi, 50*pi]
+const s = round(Int, 6 * (N-1) / 50)   # size of mode box in domain
+const n_freq = length(freqs) # number of frequencies for the given problem
 
 to_cartesian = CartesianIndices((N, N))
 to_linear = LinearIndices((N, N))
@@ -76,12 +78,11 @@ m = Model(with_optimizer(Gurobi.Optimizer))
 
 @objective(m, Max, -.5*sum(t) - sum(nu[:,i]' * b_all[i] for i=1:n_freq))
 
-@info "Generating constraints"
-
-@showprogress 1 for j=1:N*N
-    @info "something"
-    quad_cons(m, [ (L_all[i][:,j]' * nu[:,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
-    quad_cons(m, [ (L_all[i][:,j]' * nu[:,i] + t_max*nu[j,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
+@showprogress "Generating constraints..." for j=1:N*N
+    quad_cons(m, [ (sum(val * nu[k,i] for (k, val) = zip(findnz(L_all[i][:, j])...)) -
+                        (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
+    quad_cons(m, [ (sum(val * nu[k,i] for (k, val) = zip(findnz(L_all[i][:, j])...)) +
+                        t_max*nu[j,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
 end
 
 @time optimize!(m)
@@ -92,7 +93,8 @@ t_sol = value.(t)
 lower_bound = (-.5*sum(t_sol) + sum(-nu_sol[:,i]' * b_all[i] + .5*norm(weights_all[i] .* g_all[i]).^2 for i=1:n_freq))
 
 theta_init = zeros(N*N)
-zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .< sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i]).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq)
+zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .< 
+                sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i]).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq)
 theta_init[zero_ind] .= 0
 theta_init[.~zero_ind] .= t_max
 
@@ -176,7 +178,7 @@ for n = 1:maxiter
     @show cons_val
     @show obj_val
 
-    if ((n-1)%10 == 0)
+    if PLOT_ITERATES && ((n-1)%10 == 0)
         figure()
         title(L"$\theta$")
         imshow(reshape(curr_theta, N, N), cmap="Purples")
