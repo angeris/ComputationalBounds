@@ -12,7 +12,7 @@ rc("text", usetex=true)
 t_min = 1
 t_max = 2 - t_min
 
-N = 251  # number of points in domain
+N = 51  # number of points in domain
 freqs = [30*pi, 40*pi, 50*pi]
 s = round(Int, 6 * (N-1) / 50)   # size of mode box in domain
 n_freq = length(freqs) # number of frequencies for the given problem
@@ -39,6 +39,8 @@ end_points = [
     CartesianIndex(mid_point+s, N)
 ]
 
+⊗ = kron
+
 for i=1:n_freq
     global weights_all, g_all, b_all, L_all
     w = freqs[i]
@@ -47,7 +49,7 @@ for i=1:n_freq
     g = zeros(N*N)
     b = zeros(N*N)
     L_1d = (N*N)/(w*w) * generate_lapl(N)
-    L = kron(L_1d, sparse(I, N, N)) + kron(sparse(I, N, N), L_1d) + t_min * spdiagm(0 => ones(N*N))
+    L = L_1d ⊗ sparse(I, N, N) + sparse(I, N, N) ⊗ L_1d + t_min * I
 
     filter_square!(weights, beg_points[i], end_points[i], to_linear, 1)
     filter_square!(g, beg_points[i], end_points[i], to_linear, 1)
@@ -63,22 +65,29 @@ end
 z_init = zeros(n_freq, N*N)
 t_init = t_min*ones(N*N)
 
+@info "Generating model"
+
 m = Model(with_optimizer(Gurobi.Optimizer))
 
 @variable(m, nu[1:N*N, 1:n_freq])
 @variable(m, t[1:N*N])
 
+@info "Generating objective"
+
 @objective(m, Max, -.5*sum(t) - sum(nu[:,i]' * b_all[i] for i=1:n_freq))
 
-@showprogress "Generating constraints..." for j=1:N*N
+@info "Generating constraints"
+
+@showprogress 1 for j=1:N*N
+    @info "something"
     quad_cons(m, [ (L_all[i][:,j]' * nu[:,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
     quad_cons(m, [ (L_all[i][:,j]' * nu[:,i] + t_max*nu[j,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
 end
 
-@time status = solve(m)
+@time optimize!(m)
 
-nu_sol = getvalue(nu)
-t_sol = getvalue(t)
+nu_sol = value.(nu)
+t_sol = value.(t)
 
 lower_bound = (-.5*sum(t_sol) + sum(-nu_sol[:,i]' * b_all[i] + .5*norm(weights_all[i] .* g_all[i]).^2 for i=1:n_freq))
 
@@ -112,8 +121,6 @@ close()
 # New primal solver
 curr_z = copy(z_init)
 curr_theta = copy(theta_init)
-# curr_z = zeros(3, N*N)
-# curr_theta = ones(N*N)*t_min
 curr_nu = zeros(n_freq, N*N)
 rho = 100
 maxiter = 600
