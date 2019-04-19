@@ -2,7 +2,9 @@
 
 This repository contains the code used to generate the images for the paper
 [Computational Bounds for Photonic Design](https://arxiv.org/abs/1811.12936) by
-Guillermo Angeris, Jelena Vučković, and Stephen Boyd.
+[Guillermo Angeris](http://web.stanford.edu/~guillean/),
+[Jelena Vučković](http://web.stanford.edu/~jela/),
+and [Stephen Boyd](http://web.stanford.edu/~boyd/).
 
 ## Running the script
 Make sure you have [all of the requirements](##Requirements).
