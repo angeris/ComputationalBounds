@@ -1,8 +1,8 @@
 using PyPlot
 using JuMP
 using ProgressMeter
-using JLD
-import Gurobi
+# using JLD
+using MosekTools
 
 # Helper functions for problem formulation
 include("utilities.jl")
@@ -22,11 +22,13 @@ const n_freq = length(freqs) # number of frequencies for the given problem
 to_cartesian = CartesianIndices((N, N))
 to_linear = LinearIndices((N, N))
 
+# Generates all required matrices
 weights_all = []
-g_all = []
+z_hat_all = []
 b_all = []
 L_all = []
 
+# Indices of all squares found in figures
 mid_point = div(N-1, 2)
 
 beg_points = [
@@ -44,45 +46,43 @@ end_points = [
 ⊗ = kron
 
 for i=1:n_freq
-    global weights_all, g_all, b_all, L_all
+    global weights_all, z_hat_all, b_all, L_all
     w = freqs[i]
 
     weights = 5*ones(N*N)
-    g = zeros(N*N)
+    z_hat = zeros(N*N)
     b = zeros(N*N)
     L_1d = (N*N)/(w*w) * generate_lapl(N)
     L = L_1d ⊗ sparse(I, N, N) + sparse(I, N, N) ⊗ L_1d + t_min * I
 
     filter_square!(weights, beg_points[i], end_points[i], to_linear, 1)
-    filter_square!(g, beg_points[i], end_points[i], to_linear, 1)
+    filter_square!(z_hat, beg_points[i], end_points[i], to_linear, 1)
 
     push!(weights_all, weights)
-    push!(g_all, g)
+    push!(z_hat_all, z_hat)
     push!(b_all, b)
     push!(L_all, L)
 end
-
-
 
 z_init = zeros(n_freq, N*N)
 t_init = t_min*ones(N*N)
 
 @info "Generating model"
 
-m = Model(with_optimizer(Gurobi.Optimizer))
+m = Model(with_optimizer(Mosek.Optimizer))
 
 @variable(m, nu[1:N*N, 1:n_freq])
 @variable(m, t[1:N*N])
 
 @info "Generating objective"
 
-@objective(m, Max, -.5*sum(t) - sum(nu[:,i]' * b_all[i] for i=1:n_freq))
+@objective(m, Max, -.5*sum(t) - sum(sum(nu[j,i]' * b_all[i][j] for j=1:N^2 if !iszero(b_all[i][j])) for i=1:n_freq))
 
 @showprogress "Generating constraints..." for j=1:N*N
     quad_cons(m, [ (sum(val * nu[k,i] for (k, val) = zip(findnz(L_all[i][:, j])...)) -
-                        (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
+                        (weights_all[i][j]^2)*z_hat_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
     quad_cons(m, [ (sum(val * nu[k,i] for (k, val) = zip(findnz(L_all[i][:, j])...)) +
-                        t_max*nu[j,i] - (weights_all[i][j]^2)*g_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
+                        t_max*nu[j,i] - (weights_all[i][j]^2)*z_hat_all[i][j]) / weights_all[i][j] for i=1:n_freq ], t[j])
 end
 
 @time optimize!(m)
@@ -90,16 +90,16 @@ end
 nu_sol = value.(nu)
 t_sol = value.(t)
 
-lower_bound = (-.5*sum(t_sol) + sum(-nu_sol[:,i]' * b_all[i] + .5*norm(weights_all[i] .* g_all[i]).^2 for i=1:n_freq))
+@show lower_bound = (-.5*sum(t_sol) + sum(-nu_sol[:,i]' * b_all[i] + .5*norm(weights_all[i] .* z_hat_all[i]).^2 for i=1:n_freq))
 
 theta_init = zeros(N*N)
-zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .< 
-                sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* g_all[i]).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq)
+zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* z_hat_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .< 
+                sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* z_hat_all[i]).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq)
 theta_init[zero_ind] .= 0
 theta_init[.~zero_ind] .= t_max
 
 for i=1:n_freq
-    z_init[i,:] .= g_all[i] - (L_all[i]'*nu_sol[:,i] + nu_sol[:,i] .* theta_init) ./ (weights_all[i] .^ 2)
+    z_init[i,:] .= z_hat_all[i] - (L_all[i]'*nu_sol[:,i] + nu_sol[:,i] .* theta_init) ./ (weights_all[i] .^ 2)
 end
 
 figure(figsize=(8, 5))
@@ -121,11 +121,13 @@ close()
 # end
 
 # New primal solver
-curr_z = copy(z_init)
-curr_theta = copy(theta_init)
+# curr_z = copy(z_init)
+curr_z = zeros(n_freq, N*N)
+# curr_theta = copy(theta_init)
+curr_theta = zeros(N*N)
 curr_nu = zeros(n_freq, N*N)
 rho = 100
-maxiter = 600
+maxiter = 500
 prev_conv_val = Inf
 
 all_feas_tol = zeros(maxiter)
@@ -138,30 +140,31 @@ tau = .9
 
 last_iteration = 0
 
+# Generate an initial symbolic factorization for reuse.
+F = cholesky(L_all[1]'*L_all[1] + spdiagm(0 => weights_all[1].^2))
+
 for n = 1:maxiter
     global last_iteration, curr_z, curr_theta, curr_nu
 
     @time begin
-    for i=1:n_freq
-        curr_z[i,:] .= solve_max_eq(L_all[i], curr_theta, curr_nu[i,:], rho, weights_all[i], g_all[i], b_all[i])
+        for i=1:n_freq
+            curr_z[i,:] .= solve_max_eq!(curr_z[i,:], L_all[i], curr_theta, curr_nu[i,:], rho, weights_all[i], z_hat_all[i], b_all[i], F)
+        end
+
+        # Minimize over design
+        curr_theta .= min_sq_diag([weights_all[i] .* curr_z[i,:] for i=1:n_freq], [weights_all[i] .* (b_all[i] - curr_nu[i,:] - L_all[i] * curr_z[i,:]) for i=1:n_freq], t_max, n_freq)
+
+        # Update dual
+        cons_val = 0
+        for i=1:n_freq
+            resid = L_all[i] * curr_z[i,:] + curr_z[i,:] .* curr_theta - b_all[i]
+            curr_nu[i,:] .+= resid
+            cons_val += norm(resid)^2
+        end
     end
-
-    # Minimize over design
-    curr_theta .= min_sq_diag([weights_all[i] .* curr_z[i,:] for i=1:n_freq], [weights_all[i] .* (b_all[i] - curr_nu[i,:] - L_all[i] * curr_z[i,:]) for i=1:n_freq], t_max, n_freq)
-
-    end
-
-    # Update dual
-    cons_val = 0
-    for i=1:n_freq
-        resid = L_all[i] * curr_z[i,:] + curr_z[i,:] .* curr_theta - b_all[i]
-        curr_nu[i,:] .+= resid
-        cons_val += norm(resid)^2
-    end
-
     all_feas_tol[n] = sqrt(cons_val)
 
-    obj_val = sum(.5*norm(weights_all[i].*(curr_z[i,:] - g_all[i]))^2 for i=1:n_freq)
+    obj_val = sum(.5*norm(weights_all[i].*(curr_z[i,:] - z_hat_all[i]))^2 for i=1:n_freq)
 
     all_obj[n] = obj_val
     all_design[n, :] .= curr_theta
@@ -189,7 +192,7 @@ for n = 1:maxiter
     prev_conv_val = cons_val
 end
 
-obj_val = sum(.5*norm(weights_all[i].*(curr_z[i,:] - g_all[i]))^2 for i=1:n_freq)
+obj_val = sum(.5*norm(weights_all[i].*(curr_z[i,:] - z_hat_all[i]))^2 for i=1:n_freq)
 @show obj_val
 @show lower_bound
 @show last_iteration
@@ -218,7 +221,7 @@ figure(figsize=(8, 3))
 for i=1:n_freq
     subplot(1, 3, i)
     title("\$S^$i\$")
-    imshow(reshape(g_all[i], N, N), cmap="Purples")
+    imshow(reshape(z_hat_all[i], N, N), cmap="Purples")
 end
 savefig("boxes_n$N.pdf", bbox_inches="tight")
 close()

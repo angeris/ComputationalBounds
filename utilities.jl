@@ -1,5 +1,6 @@
 using LinearAlgebra
 using SparseArrays
+using IterativeSolvers: cg!
 
 "Generates a laplacian with Dirichlet BCs"
 function generate_lapl(n)
@@ -35,12 +36,14 @@ end
 """
 Minimizes ‖W(z - z_hat)‖² + ρ‖(A + diag(θ))z - b + ν‖² over z.
 """
-function solve_max_eq(A, θ, ν, ρ, W, z_hat, b)
+function solve_max_eq!(z, A, θ, ν, ρ, W, z_hat, b, F)
     A_θ = A + spdiagm(0 => θ)
-    return Symmetric(Diagonal(W.^2) + ρ * A_θ' * A_θ) \ (W .* z_hat + ρ * A_θ' * (b - ν))
+    c_fac = cholesky!(F, Symmetric(spdiagm(0 => W.^2) + ρ * A_θ' * A_θ))
+    return c_fac \ (W .* z_hat + ρ * A_θ' * (b - ν))
 end
 
 # Formulates ‖x‖² ≤ y as an SOC
 function quad_cons(m, x, y)
-    @constraint(m, sum(x.^2) ≤ y )
+    # @constraint(m, sum(x.^2) ≤ y )
+    @constraint(m, [y+1; y-1; 2*x] in SecondOrderCone())
 end
