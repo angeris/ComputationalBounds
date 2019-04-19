@@ -38,8 +38,7 @@ Minimizes ‖W(z - z_hat)‖² + ρ‖(A + diag(θ))z - b + ν‖² over z.
 """
 function solve_max_eq!(z, A, θ, ν, ρ, W, z_hat, b, F)
     A_θ = A + spdiagm(0 => θ)
-    c_fac = cholesky!(F, Symmetric(spdiagm(0 => W.^2) + ρ * A_θ' * A_θ))
-    return c_fac \ (W .* z_hat + ρ * A_θ' * (b - ν))
+    return cholesky!(F, Symmetric(spdiagm(0 => W.^2) + ρ * A_θ' * A_θ)) \ (W .* z_hat + ρ * A_θ' * (b - ν))
 end
 
 # Formulates ‖x‖² ≤ y as an SOC
