@@ -31,3 +31,6 @@ And, if you plan to use it directly, it will also require
 
 Additionally, if you'd like to save the iterates, you will also need
 - JLD
+
+You can install any of these from the Julia console (REPL) by typing `]` and
+`add [PACKAGE_NAME]`. See the [Julia documentation](https://docs.julialang.org/en/v1/stdlib/Pkg/index.html) for more details.
