@@ -31,8 +31,6 @@ function min_sq_diag(v, h, u, n_freq; tol=1e-14)
     return clamp.(w_comp ./ inv_comp, 0, u)
 end
 
-# TODO: This is slow and sad. A CG method (or saving and reusing the symbolic factorization) would
-# make it much faster.
 """
 Minimizes ‖W(z - z_hat)‖² + ρ‖(A + diag(θ))z - b + ν‖² over z.
 """

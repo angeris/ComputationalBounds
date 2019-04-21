@@ -96,7 +96,7 @@ t_sol = value.(t)
 
 # Equation (10) in the paper
 theta_init = zeros(N*N)
-zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* z_hat_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .< 
+zero_ind = sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* z_hat_all[i] + nu_sol[:,i] .* t_max).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq) .<
                 sum((L_all[i]' * nu_sol[:,i] - (weights_all[i] .^ 2) .* z_hat_all[i]).^2 ./ (weights_all[i] .^ 2) for i=1:n_freq)
 theta_init[zero_ind] .= 0
 theta_init[.~zero_ind] .= t_max
@@ -177,7 +177,7 @@ for n = 1:maxiter
     last_iteration = n
 
     if cons_val < 1e-4
-        @info "Breaking due to tolerance." 
+        @info "Breaking due to tolerance."
         @show cons_val
         break
     end

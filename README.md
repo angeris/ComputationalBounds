@@ -1,4 +1,4 @@
-# Code for Computational Bounds for Photonic Design
+#Code for Computational Bounds for Photonic Design
 
 This repository contains the code used to generate the images for the paper
 [Computational Bounds for Photonic Design](https://arxiv.org/abs/1811.12936) by
@@ -23,8 +23,9 @@ See the code for further documentation.
 
 ## Requirements
 This package has the following requirements:
+- Julia version ≥ 1.0
 - PyPlot
-- JuMP
+- JuMP (version ≥ .19 required!)
 - ProgressMeter
 
 And, if you plan to use it directly, it will also require
