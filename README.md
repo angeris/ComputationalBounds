@@ -7,7 +7,7 @@ This repository contains the code used to generate the images for the paper
 and [Stephen Boyd](http://web.stanford.edu/~boyd/).
 
 ## Running the script
-Make sure you have [all of the requirements](##requirements).
+Make sure you have [all of the requirements](#requirements).
 
 Clone the repository and simply run (assuming that [Julia](https://julialang.org) is found in your `PATH`)
 ```bash
